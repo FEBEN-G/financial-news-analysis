@@ -1,0 +1,117 @@
+TECHNICAL ANALYSIS REPORT
+==================================================
+Generated on: 2025-11-20 21:31:04
+
+Stocks Analyzed: 5
+
+STOCK: AA
+----------------------------------------
+PRICE STATISTICS:
+  Current Price: $36.62
+  Total Return: -18.91%
+  Volatility: 3.31%
+  Max Price: $46.82
+  Min Price: $22.36
+
+TRADING SIGNALS:
+  golden_cross: 1 occurrences
+    - 20-day SMA crosses above 50-day SMA (Bullish)
+  death_cross: 1 occurrences
+    - 20-day SMA crosses below 50-day SMA (Bearish)
+
+STOCK: A
+----------------------------------------
+PRICE STATISTICS:
+  Current Price: $144.88
+  Total Return: 13.60%
+  Volatility: 1.97%
+  Max Price: $151.65
+  Min Price: $98.88
+
+TRADING SIGNALS:
+  golden_cross: 4 occurrences
+    - 20-day SMA crosses above 50-day SMA (Bullish)
+  death_cross: 3 occurrences
+    - 20-day SMA crosses below 50-day SMA (Bearish)
+
+STOCK: AAL
+----------------------------------------
+PRICE STATISTICS:
+  Current Price: $12.47
+  Total Return: -13.76%
+  Volatility: 3.57%
+  Max Price: $18.66
+  Min Price: $9.07
+
+TRADING SIGNALS:
+  golden_cross: 4 occurrences
+    - 20-day SMA crosses above 50-day SMA (Bullish)
+  death_cross: 3 occurrences
+    - 20-day SMA crosses below 50-day SMA (Bearish)
+
+STOCK: AAC
+----------------------------------------
+PRICE STATISTICS:
+  Current Price: $31.71
+  Total Return: -68.61%
+  Volatility: 3.51%
+  Max Price: $113.40
+  Min Price: $26.01
+
+TRADING SIGNALS:
+  golden_cross: 5 occurrences
+    - 20-day SMA crosses above 50-day SMA (Bullish)
+  death_cross: 5 occurrences
+    - 20-day SMA crosses below 50-day SMA (Bearish)
+  rsi_oversold: 39 occurrences
+    - RSI below 30 (Oversold, potential buy)
+  rsi_overbought: 9 occurrences
+    - RSI above 70 (Overbought, potential sell)
+  macd_bullish: 84 occurrences
+    - MACD above signal line (Bullish momentum)
+  macd_bearish: 248 occurrences
+    - MACD below signal line (Bearish momentum)
+  macd_crossover: 3 occurrences
+    - MACD crosses above signal line (Buy signal)
+  bb_oversold: 333 occurrences
+    - Price below lower Bollinger Band (Oversold)
+  bb_overbought: 319 occurrences
+    - Price above upper Bollinger Band (Overbought)
+  stoch_oversold: 72 occurrences
+    - Stochastic below 20 (Oversold)
+  stoch_overbought: 24 occurrences
+    - Stochastic above 80 (Overbought)
+
+STOCK: AAN
+----------------------------------------
+PRICE STATISTICS:
+  Current Price: $31.71
+  Total Return: -68.61%
+  Volatility: 3.51%
+  Max Price: $113.40
+  Min Price: $26.01
+
+TRADING SIGNALS:
+  golden_cross: 5 occurrences
+    - 20-day SMA crosses above 50-day SMA (Bullish)
+  death_cross: 5 occurrences
+    - 20-day SMA crosses below 50-day SMA (Bearish)
+  rsi_oversold: 39 occurrences
+    - RSI below 30 (Oversold, potential buy)
+  rsi_overbought: 9 occurrences
+    - RSI above 70 (Overbought, potential sell)
+  macd_bullish: 84 occurrences
+    - MACD above signal line (Bullish momentum)
+  macd_bearish: 248 occurrences
+    - MACD below signal line (Bearish momentum)
+  macd_crossover: 3 occurrences
+    - MACD crosses above signal line (Buy signal)
+  bb_oversold: 333 occurrences
+    - Price below lower Bollinger Band (Oversold)
+  bb_overbought: 319 occurrences
+    - Price above upper Bollinger Band (Overbought)
+  stoch_oversold: 72 occurrences
+    - Stochastic below 20 (Oversold)
+  stoch_overbought: 24 occurrences
+    - Stochastic above 80 (Overbought)
+

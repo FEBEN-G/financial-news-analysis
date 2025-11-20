@@ -1,260 +1,370 @@
 """
-Task 2: Quantitative Analysis with Technical Indicators
+TASK 2: Quantitative Analysis with Technical Indicators
 """
-import sys
-import os
 import pandas as pd
-from datetime import datetime
+import numpy as np
+import yfinance as yf
+import matplotlib.pyplot as plt
+import seaborn as sns
+from datetime import datetime, timedelta
+import os
+import sys
+from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add src to path
+sys.path.append(str(Path(__file__).parent.parent))
 
-def step(step_number, description):
-    """Print step header."""
-    print(f"\n{'='*70}")
-    print(f"📊 TASK 2 - STEP {step_number}: {description}")
-    print(f"{'='*70}")
+try:
+    from src.data_processing import load_financial_news_data
+    from src.technical_analysis import StockTechnicalAnalyzer
+except ImportError as e:
+    print(f"Import error: {e}")
+    sys.exit(1)
 
 def main():
     print("🚀 TASK 2: QUANTITATIVE ANALYSIS WITH TECHNICAL INDICATORS")
     print("=" * 70)
     
-    # STEP 1: Load Processed Data
-    step(1, "LOADING PROCESSED FINANCIAL DATA")
+    # Check for technical analysis libraries
+    try:
+        import pandas_ta
+        print("✓ pandas_ta is available (TA-Lib alternative)")
+        PANDAS_TA_AVAILABLE = True
+    except ImportError:
+        print("❌ pandas_ta not available. Please install: pip install pandas_ta")
+        PANDAS_TA_AVAILABLE = False
+        return
+
+    # Step 1: Load financial news data from the correct file
+    print("\n" + "=" * 70)
+    print("📊 STEP 1: LOADING FINANCIAL NEWS DATA")
+    print("=" * 70)
     
-    from src.data_loader import FinancialNewsLoader
+    # Use the actual data file
+    news_data = load_financial_news_data("data/raw/raw_analyst_ratings.csv", sample_size=5000)
     
-    print("Loading financial news data...")
-    loader = FinancialNewsLoader()
-    data = loader.load_data(sample_size=10000)  # Use 10K for faster testing
+    if news_data is None or len(news_data) == 0:
+        print("❌ Failed to load financial news data")
+        # Try with sample data as fallback
+        print("Trying with sample data...")
+        news_data = load_financial_news_data(sample_size=1000)
     
-    if data is None:
-        print("❌ Failed to load data")
+    if news_data is None or len(news_data) == 0:
+        print("❌ No data available for analysis")
         return
     
-    stats = loader.get_basic_stats()
-    print(f"✅ Loaded {stats['total_articles']:,} articles")
-    print(f"   Top 5 stocks: {list(stats['stocks']['top_10'].keys())[:5]}")
+    print(f"✅ Loaded {len(news_data)} articles")
     
-    # STEP 2: Technical Analysis on Multiple Stocks
-    step(2, "PERFORMING TECHNICAL ANALYSIS ON TOP STOCKS")
+    # Get top stocks from the data - ensure we have the stock column
+    if 'stock' not in news_data.columns:
+        print("❌ No 'stock' column found in data")
+        return
     
-    from src.technical_analysis import StockTechnicalAnalyzer
-    
-    # Select top 3 stocks for comprehensive analysis
-    top_stocks = data['stock'].value_counts().head(3).index.tolist()
-    print(f"Analyzing technical indicators for: {', '.join(top_stocks)}")
+    top_stocks = news_data['stock'].value_counts().head(5).index.tolist()
+    print(f"📈 Top {len(top_stocks)} stocks to analyze: {', '.join(top_stocks)}")
+
+    # Step 2: Perform technical analysis on each stock
+    print("\n" + "=" * 70)
+    print("📊 STEP 2: PERFORMING TECHNICAL ANALYSIS")
+    print("=" * 70)
     
     technical_results = {}
     
-    for stock in top_stocks:
+    for symbol in top_stocks:
+        print(f"\n🔍 Analyzing {symbol}...")
         try:
-            print(f"\n🔍 Analyzing {stock}...")
-            
-            # Initialize analyzer with 1-year data
-            analyzer = StockTechnicalAnalyzer(stock, period='1y')
-            
-            # Calculate all technical indicators
+            # Use the StockTechnicalAnalyzer class
+            analyzer = StockTechnicalAnalyzer(symbol, period="1y")
             analyzer.calculate_indicators()
             
-            # Generate trading signals
+            # Get summary statistics
+            stats = analyzer.get_summary_stats()
             signals = analyzer.generate_signals()
             
-            # Get summary statistics
-            stock_stats = analyzer.get_summary_stats()
-            
-            technical_results[stock] = {
+            technical_results[symbol] = {
                 'analyzer': analyzer,
+                'stats': stats,
                 'signals': signals,
-                'stats': stock_stats
+                'data': analyzer.data
             }
             
-            # Display results
-            price_stats = stock_stats.get('price_stats', {})
-            if price_stats:
-                return_val = price_stats.get('total_return', 0)
-                volatility = price_stats.get('volatility', 0)
-                print(f"  📈 Price Performance:")
-                print(f"     Total Return: {return_val:+.2f}%")
-                print(f"     Volatility: {volatility:.2f}%")
-                print(f"     Price Range: ${price_stats.get('min_price', 0):.2f} - ${price_stats.get('max_price', 0):.2f}")
+            print(f"✅ Technical analysis completed for {symbol}")
             
-            # Show active signals
-            signal_counts = signals.get('counts', {})
-            active_signals = {k: v for k, v in signal_counts.items() if v > 0}
-            
-            if active_signals:
-                print(f"  🔔 Active Technical Signals:")
-                for signal, count in active_signals.items():
-                    signal_desc = signals['descriptions'].get(signal, signal)
-                    print(f"     • {signal}: {count} occurrences")
-            else:
-                print(f"  ℹ️  No active technical signals")
-                
-        except Exception as e:
-            print(f"  ❌ Error analyzing {stock}: {e}")
-            continue
-    
-    # STEP 3: Create Technical Analysis Visualizations
-    step(3, "CREATING TECHNICAL ANALYSIS VISUALIZATIONS")
-    
-    print("Generating technical analysis charts...")
-    
-    for stock, results in technical_results.items():
-        try:
-            analyzer = results['analyzer']
-            
-            # Create visualization
-            viz_path = f"data/processed/visualizations/technical_analysis_{stock}.png"
-            analyzer.plot_technical_analysis(save_path=viz_path)
-            
-            print(f"  ✅ Technical chart saved for {stock}")
+            # Safely display price information
+            if stats and 'price_stats' in stats:
+                price_stats = stats['price_stats']
+                try:
+                    end_price = price_stats.get('end_price', 0)
+                    total_return = price_stats.get('total_return', 0)
+                    print(f"   Current Price: ${end_price:.2f}")
+                    print(f"   Total Return: {total_return:.2f}%")
+                except (TypeError, ValueError) as e:
+                    print(f"   Current Price: ${price_stats.get('end_price', 0)}")
+                    print(f"   Total Return: {price_stats.get('total_return', 0)}%")
             
         except Exception as e:
-            print(f"  ❌ Could not create visualization for {stock}: {e}")
+            print(f"❌ Error analyzing {symbol}: {e}")
+            technical_results[symbol] = None
+
+    # Step 3: Generate technical analysis report
+    print("\n" + "=" * 70)
+    print("📊 STEP 3: GENERATING TECHNICAL ANALYSIS REPORT")
+    print("=" * 70)
     
-    # STEP 4: Generate Technical Analysis Report
-    step(4, "GENERATING TECHNICAL ANALYSIS REPORT")
+    generate_technical_report(technical_results)
+
+    # Step 4: Create visualizations
+    print("\n" + "=" * 70)
+    print("📊 STEP 4: CREATING TECHNICAL ANALYSIS VISUALIZATIONS")
+    print("=" * 70)
     
-    report = generate_technical_report(technical_results)
+    create_technical_visualizations(technical_results)
+
+    # Step 5: Comparative analysis
+    print("\n" + "=" * 70)
+    print("📊 STEP 5: COMPARATIVE TECHNICAL ANALYSIS")
+    print("=" * 70)
     
-    # Save report
-    report_path = 'data/processed/technical_analysis_report.txt'
+    comparative_analysis(technical_results)
+
+    # Step 6: Key findings and insights
+    print("\n" + "=" * 70)
+    print("📊 STEP 6: KEY FINDINGS & INSIGHTS")
+    print("=" * 70)
+    
+    generate_insights(technical_results)
+    
+    print("\n🎉 TASK 2 COMPLETED SUCCESSFULLY!")
+
+def generate_technical_report(technical_results, output_dir="reports"):
+    """Generate a comprehensive technical analysis report"""
+    os.makedirs(output_dir, exist_ok=True)
+    report_path = os.path.join(output_dir, "technical_analysis_report.txt")
+    
     with open(report_path, 'w') as f:
-        f.write(report)
+        f.write("TECHNICAL ANALYSIS REPORT\n")
+        f.write("=" * 50 + "\n")
+        f.write(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+        
+        successful_analysis = {k: v for k, v in technical_results.items() if v is not None}
+        
+        if not successful_analysis:
+            f.write("❌ No successful technical analysis results.\n")
+            return
+        
+        f.write(f"Stocks Analyzed: {len(successful_analysis)}\n\n")
+        
+        for symbol, result in successful_analysis.items():
+            f.write(f"STOCK: {symbol}\n")
+            f.write("-" * 40 + "\n")
+            
+            stats = result['stats']
+            signals = result['signals']
+            
+            # Price statistics
+            f.write("PRICE STATISTICS:\n")
+            price_stats = stats.get('price_stats', {})
+            f.write(f"  Current Price: ${price_stats.get('end_price', 0):.2f}\n")
+            f.write(f"  Total Return: {price_stats.get('total_return', 0):.2f}%\n")
+            f.write(f"  Volatility: {price_stats.get('volatility', 0):.2f}%\n")
+            f.write(f"  Max Price: ${price_stats.get('max_price', 0):.2f}\n")
+            f.write(f"  Min Price: ${price_stats.get('min_price', 0):.2f}\n\n")
+            
+            # Trading signals
+            f.write("TRADING SIGNALS:\n")
+            signal_counts = signals.get('counts', {})
+            signal_descriptions = signals.get('descriptions', {})
+            
+            for signal, count in signal_counts.items():
+                if count > 0:
+                    desc = signal_descriptions.get(signal, 'No description available')
+                    f.write(f"  {signal}: {count} occurrences\n")
+                    f.write(f"    - {desc}\n")
+            
+            f.write("\n")
     
     print(f"✅ Technical analysis report saved to: {report_path}")
+
+def create_technical_visualizations(technical_results, output_dir="reports/figures"):
+    """Create technical analysis charts for each stock"""
+    os.makedirs(output_dir, exist_ok=True)
     
-    # STEP 5: Compare Technical Indicators
-    step(5, "COMPARATIVE TECHNICAL ANALYSIS")
+    successful_analysis = {k: v for k, v in technical_results.items() if v is not None}
     
-    print("\n📊 COMPARATIVE ANALYSIS SUMMARY:")
-    print("-" * 50)
+    if not successful_analysis:
+        print("❌ No successful analysis results to visualize")
+        return
     
-    comparison_data = []
-    for stock, results in technical_results.items():
-        stats = results['stats']
-        signals = results['signals']
+    print(f"Creating charts for {len(successful_analysis)} stocks...")
+    
+    for symbol, result in successful_analysis.items():
+        try:
+            analyzer = result['analyzer']
+            
+            # Create the plot using the analyzer's method
+            chart_path = os.path.join(output_dir, f"technical_analysis_{symbol}.png")
+            analyzer.plot_technical_analysis(save_path=chart_path)
+            
+            print(f"✅ Chart saved for {symbol}")
+            
+        except Exception as e:
+            print(f"❌ Error creating chart for {symbol}: {e}")
+
+def comparative_analysis(technical_results, output_dir="data/processed"):
+    """Perform comparative analysis across all stocks"""
+    os.makedirs(output_dir, exist_ok=True)
+    
+    successful_analysis = {k: v for k, v in technical_results.items() if v is not None}
+    
+    if not successful_analysis:
+        print("❌ No data for comparative analysis")
+        return
+    
+    # Create comparative DataFrame
+    comparative_data = []
+    
+    for symbol, result in successful_analysis.items():
+        stats = result['stats']
+        signals = result['signals']
         
         price_stats = stats.get('price_stats', {})
-        bullish_signals = sum(1 for sig, count in signals['counts'].items() 
-                            if count > 0 and any(word in sig for word in ['bull', 'golden', 'oversold', 'crossover']))
+        signal_counts = signals.get('counts', {})
         
-        comparison_data.append({
-            'Stock': stock,
-            'Total Return (%)': price_stats.get('total_return', 0),
-            'Volatility (%)': price_stats.get('volatility', 0),
-            'Bullish Signals': bullish_signals,
-            'Total Signals': sum(signals['counts'].values()),
-            'Analysis Period': stats.get('period', 'N/A')
+        comparative_data.append({
+            'Symbol': symbol,
+            'Current_Price': price_stats.get('end_price', 0),
+            'Total_Return_%': price_stats.get('total_return', 0),
+            'Volatility_%': price_stats.get('volatility', 0),
+            'Bullish_Signals': sum(1 for count in signal_counts.values() if count > 0),
+            'Total_Signals': len([count for count in signal_counts.values() if count > 0])
         })
     
-    # Display comparison table
-    comparison_df = pd.DataFrame(comparison_data)
-    print(comparison_df.to_string(index=False))
+    comparative_df = pd.DataFrame(comparative_data)
     
-    # STEP 6: Key Findings
-    step(6, "KEY FINDINGS & INSIGHTS")
+    # Display results
+    print("\n📊 COMPARATIVE ANALYSIS SUMMARY:")
+    print("-" * 60)
+    print(comparative_df.to_string(index=False))
     
-    print("\n🔍 TECHNICAL ANALYSIS INSIGHTS:")
+    # Save to CSV
+    csv_path = os.path.join(output_dir, "comparative_technical_analysis.csv")
+    comparative_df.to_csv(csv_path, index=False)
+    print(f"✅ Comparative analysis saved to: {csv_path}")
     
-    # Calculate overall metrics
-    total_stocks = len(technical_results)
-    stocks_with_signals = sum(1 for results in technical_results.values() 
-                            if sum(results['signals']['counts'].values()) > 0)
+    # Create comparative visualization
+    try:
+        plt.figure(figsize=(12, 8))
+        
+        # Create subplots
+        fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+        fig.suptitle('Comparative Technical Analysis', fontsize=16, fontweight='bold')
+        
+        # Plot 1: Current Prices
+        axes[0, 0].bar(comparative_df['Symbol'], comparative_df['Current_Price'], color='skyblue')
+        axes[0, 0].set_title('Current Stock Prices')
+        axes[0, 0].set_ylabel('Price ($)')
+        
+        # Plot 2: Total Returns
+        colors = ['green' if x >= 0 else 'red' for x in comparative_df['Total_Return_%']]
+        axes[0, 1].bar(comparative_df['Symbol'], comparative_df['Total_Return_%'], color=colors)
+        axes[0, 1].set_title('Total Returns (%)')
+        axes[0, 1].set_ylabel('Return (%)')
+        
+        # Plot 3: Volatility
+        axes[1, 0].bar(comparative_df['Symbol'], comparative_df['Volatility_%'], color='orange')
+        axes[1, 0].set_title('Volatility (%)')
+        axes[1, 0].set_ylabel('Volatility (%)')
+        
+        # Plot 4: Bullish Signals
+        axes[1, 1].bar(comparative_df['Symbol'], comparative_df['Bullish_Signals'], color='lightgreen')
+        axes[1, 1].set_title('Number of Bullish Signals')
+        axes[1, 1].set_ylabel('Signal Count')
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join("reports/figures", "comparative_analysis.png"), dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        print("✅ Comparative analysis chart saved")
+        
+    except Exception as e:
+        print(f"❌ Error creating comparative chart: {e}")
+
+def generate_insights(technical_results):
+    """Generate key insights from technical analysis"""
+    successful_analysis = {k: v for k, v in technical_results.items() if v is not None}
+    
+    if not successful_analysis:
+        print("❌ No insights available - no successful analysis results")
+        return
+    
+    print("\n🔍 KEY TECHNICAL ANALYSIS INSIGHTS:")
+    print("-" * 50)
+    
+    # Basic statistics
+    total_stocks = len(successful_analysis)
+    positive_returns = sum(1 for result in successful_analysis.values() 
+                          if result['stats'].get('price_stats', {}).get('total_return', 0) > 0)
     
     print(f"• Stocks Analyzed: {total_stocks}")
-    print(f"• Stocks with Active Signals: {stocks_with_signals}")
-    print(f"• Most Common Indicator: RSI (All stocks)")
-    print(f"• Signal Reliability: Requires further backtesting")
-    print(f"• Market Conditions: Mixed signals across different stocks")
+    print(f"• Stocks with Positive Returns: {positive_returns}/{total_stocks}")
     
-    # Recommendation based on analysis
-    best_performer = max(technical_results.items(), 
-                        key=lambda x: x[1]['stats'].get('price_stats', {}).get('total_return', 0))
+    # Find best and worst performers
+    returns_data = []
+    for symbol, result in successful_analysis.items():
+        price_stats = result['stats'].get('price_stats', {})
+        returns_data.append({
+            'symbol': symbol,
+            'return': price_stats.get('total_return', 0),
+            'volatility': price_stats.get('volatility', 0)
+        })
     
-    print(f"• Best Performer: {best_performer[0]} ({best_performer[1]['stats']['price_stats']['total_return']:.1f}% return)")
+    returns_df = pd.DataFrame(returns_data)
     
-    print(f"\n{'='*70}")
-    print("🎯 TASK 2: QUANTITATIVE ANALYSIS COMPLETED!")
-    print(f"{'='*70}")
-    
-    print(f"\n📋 DELIVERABLES GENERATED:")
-    print("✅ Technical indicators calculated for multiple stocks")
-    print("✅ Trading signals generated and analyzed")
-    print("✅ Comprehensive visualizations created")
-    print("✅ Technical analysis report generated")
-    print("✅ Comparative analysis completed")
-    
-    print(f"\n🎯 READY FOR TASK 3: CORRELATION ANALYSIS")
-    print("   Technical foundation established for sentiment-price correlation")
-
-def generate_technical_report(technical_results):
-    """Generate comprehensive technical analysis report."""
-    report = []
-    report.append("TECHNICAL ANALYSIS REPORT")
-    report.append("=" * 60)
-    report.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    report.append("")
-    
-    report.append("OVERVIEW")
-    report.append("-" * 30)
-    report.append(f"Stocks Analyzed: {len(technical_results)}")
-    report.append(f"Analysis Period: 1 Year Historical Data")
-    report.append("Technical Indicators: RSI, MACD, Moving Averages, Bollinger Bands")
-    report.append("")
-    
-    for stock, results in technical_results.items():
-        stats = results['stats']
-        signals = results['signals']
+    if not returns_df.empty:
+        best_performer = returns_df.loc[returns_df['return'].idxmax()]
+        worst_performer = returns_df.loc[returns_df['return'].idxmin()]
         
-        report.append(f"STOCK: {stock}")
-        report.append("-" * 40)
+        print(f"• Best Performer: {best_performer['symbol']} ({best_performer['return']:.2f}%)")
+        print(f"• Worst Performer: {worst_performer['symbol']} ({worst_performer['return']:.2f}%)")
         
-        # Price statistics
-        price_stats = stats.get('price_stats', {})
-        if price_stats:
-            report.append("PRICE PERFORMANCE:")
-            report.append(f"  Period: {stats.get('period', 'N/A')}")
-            report.append(f"  Total Return: {price_stats.get('total_return', 0):+.2f}%")
-            report.append(f"  Volatility: {price_stats.get('volatility', 0):.2f}%")
-            report.append(f"  Start Price: ${price_stats.get('start_price', 0):.2f}")
-            report.append(f"  End Price: ${price_stats.get('end_price', 0):.2f}")
+        # Volatility insights
+        avg_volatility = returns_df['volatility'].mean()
+        high_vol_stocks = returns_df[returns_df['volatility'] > avg_volatility]['symbol'].tolist()
         
-        # Technical signals
-        signal_counts = signals.get('counts', {})
-        active_signals = {k: v for k, v in signal_counts.items() if v > 0}
+        print(f"• Average Volatility: {avg_volatility:.2f}%")
+        if high_vol_stocks:
+            print(f"• High Volatility Stocks: {', '.join(high_vol_stocks)}")
+    
+    # Signal insights
+    total_bullish_signals = 0
+    for symbol, result in successful_analysis.items():
+        signals = result['signals'].get('counts', {})
+        bullish_signals = sum(count for signal, count in signals.items() 
+                             if 'bullish' in signal.lower() or 'oversold' in signal.lower())
+        total_bullish_signals += bullish_signals
+    
+    print(f"• Total Bullish Signals Detected: {total_bullish_signals}")
+    print(f"• Market Outlook: {'Mostly Bullish' if total_bullish_signals > total_stocks * 2 else 'Mixed'}")
+    
+    # Trading recommendations
+    print("\n💡 TRADING RECOMMENDATIONS:")
+    print("-" * 30)
+    
+    for symbol, result in successful_analysis.items():
+        price_stats = result['stats'].get('price_stats', {})
+        current_return = price_stats.get('total_return', 0)
+        volatility = price_stats.get('volatility', 0)
         
-        if active_signals:
-            report.append("ACTIVE TECHNICAL SIGNALS:")
-            for signal, count in active_signals.items():
-                signal_desc = signals['descriptions'].get(signal, signal)
-                report.append(f"  • {signal}: {count} occurrences")
-                report.append(f"    {signal_desc}")
+        if current_return > 10 and volatility < 20:
+            recommendation = "STRONG BUY"
+        elif current_return > 5:
+            recommendation = "BUY"
+        elif current_return < -10:
+            recommendation = "AVOID"
         else:
-            report.append("ACTIVE TECHNICAL SIGNALS: None")
+            recommendation = "HOLD"
         
-        # Indicator statistics
-        indicator_stats = stats.get('indicator_stats', {})
-        if indicator_stats:
-            report.append("INDICATOR VALUES:")
-            if 'rsi' in indicator_stats:
-                rsi_stats = indicator_stats['rsi']
-                report.append(f"  RSI - Current: {rsi_stats.get('current', 'N/A'):.1f}")
-                report.append(f"         Average: {rsi_stats.get('mean', 'N/A'):.1f}")
-                report.append(f"         Range: {rsi_stats.get('min', 'N/A'):.1f} - {rsi_stats.get('max', 'N/A'):.1f}")
-        
-        report.append("")
-    
-    # Summary and recommendations
-    report.append("SUMMARY & RECOMMENDATIONS")
-    report.append("-" * 30)
-    report.append("1. RSI is the most reliable indicator across all stocks")
-    report.append("2. MACD provides good momentum signals")
-    report.append("3. Moving averages work well for trend identification")
-    report.append("4. Combine multiple indicators for better signal confirmation")
-    report.append("5. Consider market context when interpreting signals")
-    
-    return "\n".join(report)
+        print(f"• {symbol}: {recommendation} (Return: {current_return:.2f}%, Vol: {volatility:.2f}%)")
 
 if __name__ == "__main__":
     main()

@@ -8,7 +8,14 @@ from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
 
-from src.config import TA_LIB_AVAILABLE, PANDAS_TA_AVAILABLE, TECHNICAL_INDICATORS
+# Import config - make sure this exists
+try:
+    from src.config import TA_LIB_AVAILABLE, PANDAS_TA_AVAILABLE, TECHNICAL_INDICATORS
+except ImportError:
+    # Default values if config doesn't exist
+    TA_LIB_AVAILABLE = False
+    PANDAS_TA_AVAILABLE = True
+    TECHNICAL_INDICATORS = ['RSI', 'MACD', 'BBANDS', 'SMA', 'EMA']
 
 class StockTechnicalAnalyzer:
     """
@@ -125,118 +132,165 @@ class StockTechnicalAnalyzer:
     def _calculate_basic_indicators(self):
         """
         Calculate basic price-based indicators that don't require special libraries.
+        SIMPLIFIED VERSION: Avoids all DataFrame assignment issues
         """
-        # Daily returns
-        self.data['daily_return'] = self.data['Close'].pct_change()
+        # Create a new DataFrame to avoid any reference issues
+        new_data = self.data.copy()
         
-        # Simple Moving Averages
-        self.data['SMA_20'] = self.data['Close'].rolling(window=20).mean()
-        self.data['SMA_50'] = self.data['Close'].rolling(window=50).mean()
+        # Basic calculations that are guaranteed to work
+        new_data['daily_return'] = new_data['Close'].pct_change()
         
-        # Exponential Moving Averages
-        self.data['EMA_12'] = self.data['Close'].ewm(span=12).mean()
-        self.data['EMA_26'] = self.data['Close'].ewm(span=26).mean()
+        # Calculate SMAs using simple rolling mean
+        new_data['SMA_20'] = new_data['Close'].rolling(window=20, min_periods=1).mean()
+        new_data['SMA_50'] = new_data['Close'].rolling(window=50, min_periods=1).mean()
         
-        # Rolling volatility (20-day)
-        self.data['volatility_20d'] = self.data['daily_return'].rolling(window=20).std()
+        # Calculate EMAs
+        new_data['EMA_12'] = new_data['Close'].ewm(span=12, min_periods=1).mean()
+        new_data['EMA_26'] = new_data['Close'].ewm(span=26, min_periods=1).mean()
         
-        # Price position relative to moving averages - FIXED
-        if 'SMA_20' in self.data.columns:
-            self.data = self.data.copy()  # Ensure we're working on a copy to avoid warnings
-            self.data.loc[:, 'price_vs_sma20'] = (self.data['Close'] - self.data['SMA_20']) / self.data['SMA_20']
-        if 'SMA_50' in self.data.columns:
-            self.data.loc[:, 'price_vs_sma50'] = (self.data['Close'] - self.data['SMA_50']) / self.data['SMA_50']
+        # Volatility
+        new_data['volatility_20d'] = new_data['daily_return'].rolling(window=20, min_periods=1).std()
+        
+        # Price vs SMA ratios - calculate safely
+        sma_20_valid = new_data['SMA_20'].notna() & (new_data['SMA_20'] != 0)
+        sma_50_valid = new_data['SMA_50'].notna() & (new_data['SMA_50'] != 0)
+        
+        new_data.loc[sma_20_valid, 'price_vs_sma20'] = (
+            (new_data.loc[sma_20_valid, 'Close'] - new_data.loc[sma_20_valid, 'SMA_20']) / 
+            new_data.loc[sma_20_valid, 'SMA_20']
+        )
+        
+        new_data.loc[sma_50_valid, 'price_vs_sma50'] = (
+            (new_data.loc[sma_50_valid, 'Close'] - new_data.loc[sma_50_valid, 'SMA_50']) / 
+            new_data.loc[sma_50_valid, 'SMA_50']
+        )
         
         # Volume indicators
-        self.data['volume_sma_20'] = self.data['Volume'].rolling(window=20).mean()
-        self.data['volume_ratio'] = self.data['Volume'] / self.data['volume_sma_20']
+        new_data['volume_sma_20'] = new_data['Volume'].rolling(window=20, min_periods=1).mean()
+        
+        # Volume ratio - calculate safely
+        volume_sma_valid = new_data['volume_sma_20'].notna() & (new_data['volume_sma_20'] != 0)
+        new_data.loc[volume_sma_valid, 'volume_ratio'] = (
+            new_data.loc[volume_sma_valid, 'Volume'] / new_data.loc[volume_sma_valid, 'volume_sma_20']
+        )
         
         # Price ranges
-        self.data['daily_range'] = (self.data['High'] - self.data['Low']) / self.data['Close']
-        self.data['true_range'] = self._calculate_true_range()
-    
-    def _calculate_true_range(self):
-        """Calculate True Range for volatility measurement."""
-        high_low = self.data['High'] - self.data['Low']
-        high_close_prev = abs(self.data['High'] - self.data['Close'].shift(1))
-        low_close_prev = abs(self.data['Low'] - self.data['Close'].shift(1))
+        new_data['daily_range'] = (new_data['High'] - new_data['Low']) / new_data['Close']
+        
+        # True range
+        high_low = new_data['High'] - new_data['Low']
+        high_close_prev = abs(new_data['High'] - new_data['Close'].shift(1))
+        low_close_prev = abs(new_data['Low'] - new_data['Close'].shift(1))
         
         true_range = pd.concat([high_low, high_close_prev, low_close_prev], axis=1)
-        return true_range.max(axis=1)
+        new_data['true_range'] = true_range.max(axis=1)
+        
+        # Update the original data
+        self.data = new_data
     
     def _calculate_indicators_talib(self):
         """
         Calculate indicators using TA-Lib.
         """
-        import talib
-        
-        # RSI
-        self.data['RSI'] = talib.RSI(self.data['Close'], timeperiod=14)
-        
-        # MACD
-        self.data['MACD'], self.data['MACD_signal'], self.data['MACD_hist'] = talib.MACD(
-            self.data['Close'], 
-            fastperiod=12, 
-            slowperiod=26, 
-            signalperiod=9
-        )
-        
-        # Bollinger Bands
-        self.data['BB_upper'], self.data['BB_middle'], self.data['BB_lower'] = talib.BBANDS(
-            self.data['Close'], 
-            timeperiod=20, 
-            nbdevup=2, 
-            nbdevdn=2
-        )
-        
-        # Stochastic
-        self.data['slowk'], self.data['slowd'] = talib.STOCH(
-            self.data['High'], 
-            self.data['Low'], 
-            self.data['Close'],
-            fastk_period=14,
-            slowk_period=3,
-            slowd_period=3
-        )
-        
-        # Average Directional Index (ADX)
-        self.data['ADX'] = talib.ADX(self.data['High'], self.data['Low'], self.data['Close'], timeperiod=14)
-        
-        # Commodity Channel Index (CCI)
-        self.data['CCI'] = talib.CCI(self.data['High'], self.data['Low'], self.data['Close'], timeperiod=14)
+        try:
+            import talib
+            
+            # RSI
+            self.data['RSI'] = talib.RSI(self.data['Close'], timeperiod=14)
+            
+            # MACD
+            self.data['MACD'], self.data['MACD_signal'], self.data['MACD_hist'] = talib.MACD(
+                self.data['Close'], 
+                fastperiod=12, 
+                slowperiod=26, 
+                signalperiod=9
+            )
+            
+            # Bollinger Bands
+            self.data['BB_upper'], self.data['BB_middle'], self.data['BB_lower'] = talib.BBANDS(
+                self.data['Close'], 
+                timeperiod=20, 
+                nbdevup=2, 
+                nbdevdn=2
+            )
+            
+            # Stochastic
+            self.data['slowk'], self.data['slowd'] = talib.STOCH(
+                self.data['High'], 
+                self.data['Low'], 
+                self.data['Close'],
+                fastk_period=14,
+                slowk_period=3,
+                slowd_period=3
+            )
+            
+            # Average Directional Index (ADX)
+            self.data['ADX'] = talib.ADX(self.data['High'], self.data['Low'], self.data['Close'], timeperiod=14)
+            
+            # Commodity Channel Index (CCI)
+            self.data['CCI'] = talib.CCI(self.data['High'], self.data['Low'], self.data['Close'], timeperiod=14)
+            
+        except ImportError:
+            print("TA-Lib not available. Install with: pip install TA-Lib")
+        except Exception as e:
+            print(f"Error calculating TA-Lib indicators: {e}")
     
     def _calculate_indicators_pandas_ta(self):
         """
         Calculate indicators using pandas_ta.
         """
-        import pandas_ta as ta
-        
-        # RSI
-        self.data['RSI'] = ta.rsi(self.data['Close'], length=14)
-        
-        # MACD
-        macd = ta.macd(self.data['Close'], fast=12, slow=26, signal=9)
-        if macd is not None:
-            self.data['MACD'] = macd['MACD_12_26_9']
-            self.data['MACD_signal'] = macd['MACDs_12_26_9']
-            self.data['MACD_hist'] = macd['MACDh_12_26_9']
-        
-        # Bollinger Bands
-        bb = ta.bbands(self.data['Close'], length=20, std=2)
-        if bb is not None:
-            self.data['BB_upper'] = bb['BBU_20_2.0']
-            self.data['BB_middle'] = bb['BBM_20_2.0']
-            self.data['BB_lower'] = bb['BBL_20_2.0']
-        
-        # Stochastic
-        stoch = ta.stoch(self.data['High'], self.data['Low'], self.data['Close'], k=14, d=3)
-        if stoch is not None:
-            self.data['slowk'] = stoch['STOCHk_14_3_3']
-            self.data['slowd'] = stoch['STOCHd_14_3_3']
-        
-        # Additional indicators
-        self.data['ADX'] = ta.adx(self.data['High'], self.data['Low'], self.data['Close'], length=14)['ADX_14']
-        self.data['CCI'] = ta.cci(self.data['High'], self.data['Low'], self.data['Close'], length=14)
+        try:
+            import pandas_ta as ta
+            
+            # RSI
+            rsi_result = ta.rsi(self.data['Close'], length=14)
+            if rsi_result is not None:
+                if isinstance(rsi_result, pd.DataFrame):
+                    self.data['RSI'] = rsi_result.iloc[:, 0]
+                else:
+                    self.data['RSI'] = rsi_result
+            
+            # MACD
+            macd_result = ta.macd(self.data['Close'], fast=12, slow=26, signal=9)
+            if macd_result is not None:
+                if isinstance(macd_result, pd.DataFrame):
+                    self.data['MACD'] = macd_result.iloc[:, 0]  # MACD line
+                    self.data['MACD_signal'] = macd_result.iloc[:, 1]  # Signal line
+                    self.data['MACD_hist'] = macd_result.iloc[:, 2]  # Histogram
+                else:
+                    self.data['MACD'] = macd_result
+            
+            # Bollinger Bands
+            bb_result = ta.bbands(self.data['Close'], length=20, std=2)
+            if bb_result is not None:
+                if isinstance(bb_result, pd.DataFrame):
+                    self.data['BB_upper'] = bb_result.iloc[:, 0]
+                    self.data['BB_middle'] = bb_result.iloc[:, 1]
+                    self.data['BB_lower'] = bb_result.iloc[:, 2]
+            
+            # Stochastic
+            stoch_result = ta.stoch(self.data['High'], self.data['Low'], self.data['Close'], k=14, d=3)
+            if stoch_result is not None:
+                if isinstance(stoch_result, pd.DataFrame):
+                    self.data['slowk'] = stoch_result.iloc[:, 0]
+                    self.data['slowd'] = stoch_result.iloc[:, 1]
+            
+            # Additional indicators
+            adx_result = ta.adx(self.data['High'], self.data['Low'], self.data['Close'], length=14)
+            if adx_result is not None and isinstance(adx_result, pd.DataFrame):
+                self.data['ADX'] = adx_result.iloc[:, 0]
+            
+            cci_result = ta.cci(self.data['High'], self.data['Low'], self.data['Close'], length=14)
+            if cci_result is not None:
+                if isinstance(cci_result, pd.DataFrame):
+                    self.data['CCI'] = cci_result.iloc[:, 0]
+                else:
+                    self.data['CCI'] = cci_result
+                
+        except ImportError:
+            print("pandas_ta not available. Install with: pip install pandas_ta")
+        except Exception as e:
+            print(f"Error calculating pandas_ta indicators: {e}")
     
     def generate_signals(self):
         """
@@ -313,42 +367,91 @@ class StockTechnicalAnalyzer:
         if self.data is None or self.data.empty:
             return {}
         
-        stats = {
-            'symbol': self.symbol,
-            'period': f"{self.data.index.min().date()} to {self.data.index.max().date()}",
-            'total_days': len(self.data),
-            'price_stats': {
-                'start_price': self.data['Close'].iloc[0],
-                'end_price': self.data['Close'].iloc[-1],
-                'total_return': (self.data['Close'].iloc[-1] - self.data['Close'].iloc[0]) / self.data['Close'].iloc[0] * 100,
-                'max_price': self.data['Close'].max(),
-                'min_price': self.data['Close'].min(),
-                'avg_daily_return': self.data['daily_return'].mean() * 100,
-                'volatility': self.data['daily_return'].std() * 100
+        # Ensure we extract scalar values from Series
+        def get_scalar_value(series):
+            """Extract scalar value from series, handling different cases"""
+            if hasattr(series, 'iloc'):
+                return series.iloc[-1] if len(series) > 0 else None
+            elif hasattr(series, 'item'):
+                return series.item()
+            else:
+                return series
+        
+        try:
+            start_price = get_scalar_value(self.data['Close'].iloc[0])
+            end_price = get_scalar_value(self.data['Close'].iloc[-1])
+            
+            # Calculate total return safely
+            if start_price and start_price != 0:
+                total_return = (end_price - start_price) / start_price * 100
+            else:
+                total_return = 0
+            
+            max_price = get_scalar_value(self.data['Close'].max())
+            min_price = get_scalar_value(self.data['Close'].min())
+            
+            # Handle daily return calculation
+            daily_return_mean = get_scalar_value(self.data['daily_return'].mean()) if 'daily_return' in self.data.columns else 0
+            daily_return_std = get_scalar_value(self.data['daily_return'].std()) if 'daily_return' in self.data.columns else 0
+            
+            stats = {
+                'symbol': self.symbol,
+                'period': f"{self.data.index.min().date()} to {self.data.index.max().date()}",
+                'total_days': len(self.data),
+                'price_stats': {
+                    'start_price': start_price,
+                    'end_price': end_price,
+                    'total_return': total_return,
+                    'max_price': max_price,
+                    'min_price': min_price,
+                    'avg_daily_return': daily_return_mean * 100,
+                    'volatility': daily_return_std * 100
+                }
             }
-        }
-        
-        # Add indicator stats if calculated
-        if self.indicators_calculated:
-            indicator_stats = {}
             
-            if 'RSI' in self.data.columns:
-                indicator_stats['rsi'] = {
-                    'mean': self.data['RSI'].mean(),
-                    'min': self.data['RSI'].min(),
-                    'max': self.data['RSI'].max(),
-                    'current': self.data['RSI'].iloc[-1] if not self.data['RSI'].isna().iloc[-1] else None
+            # Add indicator stats if calculated
+            if self.indicators_calculated:
+                indicator_stats = {}
+                
+                if 'RSI' in self.data.columns:
+                    rsi_current = get_scalar_value(self.data['RSI'].iloc[-1]) if len(self.data) > 0 else None
+                    indicator_stats['rsi'] = {
+                        'mean': get_scalar_value(self.data['RSI'].mean()),
+                        'min': get_scalar_value(self.data['RSI'].min()),
+                        'max': get_scalar_value(self.data['RSI'].max()),
+                        'current': rsi_current
+                    }
+                
+                if 'MACD' in self.data.columns:
+                    macd_current = get_scalar_value(self.data['MACD'].iloc[-1]) if len(self.data) > 0 else None
+                    signal_current = get_scalar_value(self.data['MACD_signal'].iloc[-1]) if 'MACD_signal' in self.data.columns and len(self.data) > 0 else None
+                    
+                    indicator_stats['macd'] = {
+                        'current_macd': macd_current,
+                        'current_signal': signal_current
+                    }
+                
+                stats['indicator_stats'] = indicator_stats
+            
+            return stats
+            
+        except Exception as e:
+            print(f"Error calculating stats for {self.symbol}: {e}")
+            # Return basic stats without calculations
+            return {
+                'symbol': self.symbol,
+                'period': "Unknown",
+                'total_days': len(self.data),
+                'price_stats': {
+                    'start_price': 0,
+                    'end_price': 0,
+                    'total_return': 0,
+                    'max_price': 0,
+                    'min_price': 0,
+                    'avg_daily_return': 0,
+                    'volatility': 0
                 }
-            
-            if 'MACD' in self.data.columns:
-                indicator_stats['macd'] = {
-                    'current_macd': self.data['MACD'].iloc[-1] if not self.data['MACD'].isna().iloc[-1] else None,
-                    'current_signal': self.data['MACD_signal'].iloc[-1] if 'MACD_signal' in self.data.columns and not self.data['MACD_signal'].isna().iloc[-1] else None
-                }
-            
-            stats['indicator_stats'] = indicator_stats
-        
-        return stats
+            }
 
     def plot_technical_analysis(self, save_path=None):
         """
@@ -400,7 +503,9 @@ class StockTechnicalAnalyzer:
         if all(col in self.data.columns for col in ['MACD', 'MACD_signal']):
             ax3.plot(self.data.index, self.data['MACD'], label='MACD', color='blue')
             ax3.plot(self.data.index, self.data['MACD_signal'], label='Signal', color='red')
-            ax3.bar(self.data.index, self.data.get('MACD_hist', 0), label='Histogram', alpha=0.3, color='gray')
+            # Check if MACD_hist exists and is not all zeros/NaNs
+            if 'MACD_hist' in self.data.columns and not self.data['MACD_hist'].isna().all():
+                ax3.bar(self.data.index, self.data['MACD_hist'], label='Histogram', alpha=0.3, color='gray')
             ax3.axhline(0, linestyle='-', alpha=0.5, color='black')
             ax3.set_ylabel('MACD')
             ax3.legend()
@@ -420,6 +525,87 @@ class StockTechnicalAnalyzer:
             print(f"Technical analysis chart saved to: {save_path}")
         
         plt.show()
+    
+    def get_technical_summary(self):
+        """
+        Get a comprehensive technical summary of the stock.
+        
+        Returns:
+            dict: Technical summary
+        """
+        if not self.indicators_calculated:
+            self.calculate_indicators()
+        
+        summary = {
+            'symbol': self.symbol,
+            'current_price': self.data['Close'].iloc[-1],
+            'trend': self._get_trend_direction(),
+            'momentum': self._get_momentum_status(),
+            'volatility': self._get_volatility_status(),
+            'signals': self.generate_signals()['counts']
+        }
+        
+        return summary
+    
+    def _get_trend_direction(self):
+        """Determine the current trend direction."""
+        if 'SMA_20' not in self.data.columns or 'SMA_50' not in self.data.columns:
+            return "Unknown"
+        
+        current_price = self.data['Close'].iloc[-1]
+        sma_20 = self.data['SMA_20'].iloc[-1]
+        sma_50 = self.data['SMA_50'].iloc[-1]
+        
+        if current_price > sma_20 > sma_50:
+            return "Strong Uptrend"
+        elif current_price > sma_20 and sma_20 > sma_50:
+            return "Uptrend"
+        elif current_price < sma_20 < sma_50:
+            return "Strong Downtrend"
+        elif current_price < sma_20 and sma_20 < sma_50:
+            return "Downtrend"
+        else:
+            return "Sideways/Consolidating"
+    
+    def _get_momentum_status(self):
+        """Determine the current momentum status."""
+        momentum_indicators = []
+        
+        if 'RSI' in self.data.columns:
+            rsi = self.data['RSI'].iloc[-1]
+            if not pd.isna(rsi):
+                if rsi < 30:
+                    momentum_indicators.append("Oversold")
+                elif rsi > 70:
+                    momentum_indicators.append("Overbought")
+        
+        if 'MACD' in self.data.columns and 'MACD_signal' in self.data.columns:
+            macd = self.data['MACD'].iloc[-1]
+            signal = self.data['MACD_signal'].iloc[-1]
+            if not pd.isna(macd) and not pd.isna(signal):
+                if macd > signal:
+                    momentum_indicators.append("Bullish MACD")
+                else:
+                    momentum_indicators.append("Bearish MACD")
+        
+        return ", ".join(momentum_indicators) if momentum_indicators else "Neutral"
+    
+    def _get_volatility_status(self):
+        """Determine the current volatility status."""
+        if 'volatility_20d' not in self.data.columns:
+            return "Unknown"
+        
+        vol = self.data['volatility_20d'].iloc[-1]
+        if pd.isna(vol):
+            return "Unknown"
+        
+        # Simple volatility classification
+        if vol > 0.03:  # 3% daily volatility
+            return "High"
+        elif vol > 0.015:  # 1.5% daily volatility
+            return "Medium"
+        else:
+            return "Low"
 
 # Example usage and testing
 if __name__ == "__main__":
@@ -443,6 +629,13 @@ if __name__ == "__main__":
     print(f"  Period: {stats['period']}")
     print(f"  Total Return: {stats['price_stats']['total_return']:.2f}%")
     print(f"  Volatility: {stats['price_stats']['volatility']:.2f}%")
+    
+    # Get technical summary
+    tech_summary = analyzer.get_technical_summary()
+    print(f"\nTechnical Summary:")
+    print(f"  Trend: {tech_summary['trend']}")
+    print(f"  Momentum: {tech_summary['momentum']}")
+    print(f"  Volatility: {tech_summary['volatility']}")
     
     # Plot the analysis
     analyzer.plot_technical_analysis()
