@@ -1,0 +1,24 @@
+SENTIMENT CORRELATION ANALYSIS REPORT
+==================================================
+
+Analysis Date: 2025-11-25 19:53:35
+News Articles Analyzed: 969
+Successful Date Matches: 10
+Stocks Analyzed: 1
+
+SENTIMENT DISTRIBUTION:
+  NEUTRAL: 787 articles (81.2%)
+  POSITIVE: 143 articles (14.8%)
+  NEGATIVE: 39 articles (4.0%)
+
+CORRELATION RESULTS:
+  Overall Correlation: 0.209
+  P-value: 0.562
+  Observations: 10
+
+INTERPRETATION:
+  ⚠️ Correlation not statistically significant
+  ➕ Positive sentiment associated with positive returns
+
+TRADING IMPLICATIONS:
+  ⚠️ Weak evidence - consider sentiment as one of many factors
